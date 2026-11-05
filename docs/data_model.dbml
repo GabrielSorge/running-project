@@ -1,0 +1,162 @@
+Project running_analytics {
+  database_type: 'PostgreSQL'
+  Note: 'Import this file at dbdiagram.io to view the project data model.'
+}
+
+Table raw_strava_activities {
+  raw_activity_id bigint [pk, increment]
+  strava_activity_id bigint [not null]
+  payload jsonb [not null, note: 'Original Strava activity JSON']
+  ingested_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (strava_activity_id, ingested_at) [name: 'ix_raw_strava_activities_strava_ingested']
+  }
+}
+
+Table dim_date {
+  date_key int [pk, note: 'YYYYMMDD']
+  date_value date [not null, unique]
+  calendar_year smallint [not null]
+  quarter smallint [not null]
+  month smallint [not null]
+  day_of_month smallint [not null]
+  day_of_week smallint [not null, note: 'ISO weekday: Monday=1, Sunday=7']
+  day_of_year smallint [not null]
+  iso_year smallint [not null]
+  iso_week smallint [not null]
+  is_weekend boolean [not null]
+}
+
+Table dim_race {
+  race_id bigint [pk, increment]
+  name text [not null]
+  race_date date [not null]
+  distance_m numeric(12,2) [not null]
+  city text
+  state text
+  country text
+  course_name text
+  notes text
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    race_date [name: 'ix_dim_race_race_date']
+  }
+}
+
+Table fact_activities {
+  strava_activity_id bigint [pk]
+  raw_activity_id bigint [not null, unique]
+  date_key int [not null]
+  race_id bigint
+  name text
+  sport_type text [not null]
+  start_date timestamptz [not null]
+  start_date_local timestamp [not null]
+  distance_m numeric(12,2) [not null]
+  moving_time_seconds int [not null]
+  elapsed_time_seconds int [not null]
+  total_elevation_gain_m numeric(10,2)
+  average_heartrate_bpm numeric(5,2)
+  max_heartrate_bpm smallint
+  average_speed_mps numeric(8,4)
+  max_speed_mps numeric(8,4)
+  average_pace_seconds_per_km numeric(8,2)
+  best_pace_seconds_per_km numeric(8,2)
+  average_cadence_spm numeric(6,2)
+  average_watts numeric(8,2)
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    date_key [name: 'ix_fact_activities_date_key']
+    race_id [name: 'ix_fact_activities_race_id']
+    start_date [name: 'ix_fact_activities_start_date']
+  }
+}
+
+Table fact_activity_streams {
+  strava_activity_id bigint [not null]
+  elapsed_time_seconds int [not null, note: 'One sample per elapsed second']
+  distance_m numeric(12,2)
+  altitude_m numeric(8,2)
+  heartrate_bpm smallint
+  velocity_mps numeric(8,4)
+  cadence_spm numeric(6,2)
+  watts numeric(8,2)
+
+  indexes {
+    (strava_activity_id, elapsed_time_seconds) [pk]
+  }
+}
+
+Table fact_race_profile {
+  race_id bigint [not null]
+  segment_number smallint [not null, note: 'Sequential kilometer segment']
+  segment_start_m numeric(10,2) [not null]
+  segment_end_m numeric(10,2) [not null]
+  start_elevation_m numeric(8,2)
+  end_elevation_m numeric(8,2)
+  elevation_gain_m numeric(8,2)
+
+  indexes {
+    (race_id, segment_number) [pk]
+  }
+}
+
+Table fact_weather {
+  weather_id bigint [pk, increment]
+  race_id bigint
+  strava_activity_id bigint
+  weather_type text [not null, note: 'forecast or observed']
+  source text [not null]
+  recorded_at timestamptz [not null]
+  valid_at timestamptz [not null]
+  temperature_c numeric(5,2)
+  feels_like_c numeric(5,2)
+  humidity_pct numeric(5,2)
+  precipitation_mm numeric(8,2)
+  wind_speed_mps numeric(8,4)
+  wind_direction_degrees smallint
+  weather_code text
+
+  indexes {
+    (race_id, valid_at) [name: 'ix_fact_weather_race_valid_at']
+    (strava_activity_id, valid_at) [name: 'ix_fact_weather_activity_valid_at']
+  }
+}
+
+Table sim_predictions {
+  prediction_id bigint [pk, increment]
+  race_id bigint [not null]
+  predicted_at timestamptz [not null, default: `now()`]
+  model_name text [not null]
+  model_version text
+  historical_window_days int
+  predicted_finish_seconds int [not null]
+  lower_bound_seconds int
+  upper_bound_seconds int
+  predicted_pace_seconds_per_km numeric(8,2)
+  input_snapshot jsonb [not null, default: '{}']
+  forecast_weather_id bigint
+  actual_activity_id bigint [note: 'Linked when the race result is imported']
+  evaluated_at timestamptz
+
+  indexes {
+    (race_id, predicted_at) [name: 'ix_sim_predictions_race_predicted_at']
+    actual_activity_id [name: 'ix_sim_predictions_actual_activity']
+  }
+}
+
+Ref: dim_race.race_date > dim_date.date_value
+Ref: fact_activities.raw_activity_id > raw_strava_activities.raw_activity_id
+Ref: fact_activities.date_key > dim_date.date_key
+Ref: fact_activities.race_id > dim_race.race_id
+Ref: fact_activity_streams.strava_activity_id > fact_activities.strava_activity_id
+Ref: fact_race_profile.race_id > dim_race.race_id
+Ref: fact_weather.race_id > dim_race.race_id
+Ref: fact_weather.strava_activity_id > fact_activities.strava_activity_id
+Ref: sim_predictions.race_id > dim_race.race_id
+Ref: sim_predictions.forecast_weather_id > fact_weather.weather_id
+Ref: sim_predictions.actual_activity_id > fact_activities.strava_activity_id
