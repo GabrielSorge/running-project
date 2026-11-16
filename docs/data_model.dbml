@@ -7,11 +7,24 @@ Table raw_strava_activities {
   raw_activity_id bigint [pk, increment]
   strava_activity_id bigint [not null]
   payload jsonb [not null, note: 'Original Strava activity JSON']
+  streams jsonb [note: 'Raw Strava activity streams, kept separate from payload']
+  streams_status varchar(20) [not null, default: 'pending']
   ingested_at timestamptz [not null, default: `now()`]
 
   indexes {
     (strava_activity_id, ingested_at) [name: 'ix_raw_strava_activities_strava_ingested']
   }
+}
+
+Table strava_sync_state {
+  sync_name varchar(50) [pk]
+  sync_mode varchar(20) [not null, note: 'backfill, incremental, or idle']
+  backfill_before bigint [not null, note: 'Fixed Unix timestamp to resume paginated backfill']
+  incremental_after bigint
+  incremental_before bigint
+  page int [not null]
+  latest_activity_at timestamptz
+  updated_at timestamptz [not null, default: `now()`]
 }
 
 Table dim_date {

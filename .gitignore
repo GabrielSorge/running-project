@@ -1,6 +1,7 @@
 .venv/
 .env
 data/
+strava_tokens.json
 __pycache__/
 .ipynb_checkpoints/
 *.db

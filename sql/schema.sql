@@ -6,13 +6,36 @@ CREATE TABLE raw_strava_activities (
     raw_activity_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     strava_activity_id bigint NOT NULL,
     payload jsonb NOT NULL,
+    streams jsonb,
+    streams_status text NOT NULL DEFAULT 'pending',
     ingested_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT ck_raw_strava_activities_payload_object
-        CHECK (jsonb_typeof(payload) = 'object')
+        CHECK (jsonb_typeof(payload) = 'object'),
+    CONSTRAINT ck_raw_strava_activities_streams_status
+        CHECK (streams_status IN ('pending', 'available', 'unavailable', 'not_applicable'))
 );
 
 CREATE INDEX ix_raw_strava_activities_strava_ingested
     ON raw_strava_activities (strava_activity_id, ingested_at DESC);
+
+CREATE TABLE strava_sync_state (
+    sync_name text PRIMARY KEY,
+    sync_mode text NOT NULL CHECK (sync_mode IN ('backfill', 'incremental', 'idle')),
+    backfill_before bigint NOT NULL,
+    incremental_after bigint,
+    incremental_before bigint,
+    page integer NOT NULL CHECK (page > 0),
+    latest_activity_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO strava_sync_state (
+    sync_name,
+    sync_mode,
+    backfill_before,
+    page
+)
+VALUES ('activities', 'backfill', extract(epoch FROM now())::bigint, 1);
 
 CREATE TABLE dim_date (
     date_key integer PRIMARY KEY,
